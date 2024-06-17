@@ -7,7 +7,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
 import torch.nn.functional as F
-from torch.nn import Flatten, Conv1d, Softmax, Linear, Module, CrossEntropyLoss
+from torch.nn import Flatten, Conv1d, Softmax, Linear, Module, CrossEntropyLoss, Dropout
 import torch.optim as optim
 from tqdm import tqdm
 
@@ -18,13 +18,13 @@ MODEL_WTS_FNAME = "model_wts.save"
 
 class Net(Module):
     """
-    CNN model for time series annotation.
+    ANN model for time series annotation.
 
     """
 
     def __init__(self, feat_dim, encode_len, n_classes, activation):
         super(Net, self).__init__()
-        self.MODEL_NAME = "CNN_Timeseries_Annotator"
+        self.MODEL_NAME = "ANN_Timeseries_Annotator"
 
         self.feat_dim = feat_dim
         self.encode_len = encode_len
@@ -35,48 +35,47 @@ class Net(Module):
 
         self.softmax = Softmax(dim=-1)
         self.criterion = CrossEntropyLoss()
+        self.dropout = Dropout(p=0.1) 
 
-        dim1 = 100
-        dim2 = 50
-        dim3 = 25
+        dim1 = 1000
+        dim2 = 200
+        dim3 = 100
+        dim4 = 100
 
-        self.conv1 = Conv1d(
-            in_channels=self.feat_dim,
-            out_channels=dim1,
-            kernel_size=4,
-            stride=1,
-            padding="same",
+        self.fc1 = Linear(
+            in_features=self.feat_dim,
+            out_features=dim1,
         )
-        self.conv2 = Conv1d(
-            in_channels=dim1,
-            out_channels=dim2,
-            kernel_size=8,
-            stride=1,
-            padding="same",
+        self.fc2 = Linear(
+            in_features=dim1,
+            out_features=dim2,
+
         )
-        self.conv3 = Conv1d(
-            in_channels=dim2,
-            out_channels=dim3,
-            kernel_size=16,
-            stride=1,
-            padding="same",
+        self.fc3 = Linear(
+            in_features=dim2,
+            out_features=dim3,
         )
-        self.fc = Linear(
-            in_features=dim3 * self.encode_len,
+        self.fc4 = Linear(
+            in_features=dim3,
+            out_features=dim4,
+        )
+        self.output = Linear(
+            in_features=dim4 * self.encode_len,
             out_features=self.encode_len * self.n_classes,
         )
         self.flatten = Flatten()
 
     def forward(self, X):
         batch_size = X.size(0)
-        x = X.permute(0, 2, 1)
-        x = self.conv1(x)
-        x = self.conv2(x)
-        x = self.conv3(x)
-        x = x.permute(0, 2, 1)
+        x = X.permute(0, 1, 2)  # keeping it as is
+        x = self.fc1(x)
+        x = self.fc2(x)
+        x = self.activation(x)
+        x = self.fc3(x)
+        x = self.fc4(x)
         x = self.activation(x)
         x = x.reshape(batch_size, -1)
-        x = self.fc(x)
+        x = self.output(x)
         x = x.view(-1, self.encode_len, self.n_classes)
         return x
 
@@ -151,6 +150,7 @@ class Net(Module):
                 self.optimizer.step()
 
             current_loss = loss.item()
+            self.scheduler.step()
 
             if use_early_stopping:
                 if valid_loader is not None:
@@ -176,6 +176,7 @@ class Net(Module):
                     print(
                         f"Epoch: {epoch+1}/{max_epochs}, loss: {np.round(current_loss, 5)}"
                     )
+            
 
         return losses
 
@@ -189,8 +190,6 @@ class Net(Module):
         joblib.dump(model_params, os.path.join(model_path, MODEL_PARAMS_FNAME))
         torch.save(self.state_dict(), os.path.join(
             model_path, MODEL_WTS_FNAME))
-        
-        
 
     @classmethod
     def load(cls, model_path):
@@ -205,16 +204,18 @@ class Net(Module):
     def __str__(self):
         return f"Model name: {self.MODEL_NAME}"
 
-    def set_optimizer(self, optimizer_name, lr=None):
+    def set_optimizer(self, optimizer_name, lr=0.001):
         if optimizer_name == "adam":
-            self.optimizer = optim.Adam(self.parameters())
+            self.optimizer = optim.Adam(self.parameters(), lr=lr)
         elif optimizer_name == "sgd":
-            self.optimizer = optim.SGD(self.parameters())
+            self.optimizer = optim.SGD(self.parameters(), lr=lr)
         else:
             raise ValueError(
                 f"Error: Unrecognized optimizer type: {optimizer_name}. "
                 "Must be one of ['adam', 'sgd']."
             )
+        self.scheduler = torch.optim.lr_scheduler.StepLR(
+            self.optimizer, step_size=10, gamma=0.1)
 
     def get_num_parameters(self):
         pp = 0

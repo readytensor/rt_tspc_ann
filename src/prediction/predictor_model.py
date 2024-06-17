@@ -12,7 +12,7 @@ from sklearn.metrics import f1_score
 from schema.data_schema import TSAnnotationSchema
 from preprocessing.custom_transformers import PADDING_VALUE
 from typing import Tuple
-import torch 
+import torch
 
 
 warnings.filterwarnings("ignore")
@@ -32,6 +32,7 @@ device = torch.device(
 )
 print("device used: ", device)
 
+
 def control_randomness(seed: int = 42):
     random.seed(seed)
     os.environ["PYTHONHASHSEED"] = str(seed)
@@ -41,25 +42,26 @@ def control_randomness(seed: int = 42):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
+
 class TSAnnotator:
-    """CNN Timeseries Annotator.
+    """ANN Timeseries Annotator.
 
     This class provides a consistent interface that can be used with other
     TSAnnotator models.
     """
 
-    MODEL_NAME = "CNN_Timeseries_Annotator"
+    MODEL_NAME = "ANN_Timeseries_Annotator"
 
     def __init__(
         self,
         data_schema: TSAnnotationSchema,
         encode_len: int,
-        batch_size:int = 64,
+        batch_size: int = 64,
         random_state: int = 42,
         **kwargs,
     ):
         """
-        Construct a new CNN TSAnnotator.
+        Construct a new ANN TSAnnotator.
 
         Args:
             encode_len (int): Encoding (history) length.
@@ -76,7 +78,7 @@ class TSAnnotator:
         control_randomness(self.random_state)
 
     def build_NNet_model(self) -> Net:
-        """Build a new CNN annotator."""
+        """Build a new ANN annotator."""
         model = Net(
             feat_dim=len(self.data_schema.features),
             encode_len=self.encode_len,
@@ -103,7 +105,7 @@ class TSAnnotator:
                     f" length on axis 1. Found length {T}"
                 )
             # we excluded the first 2 dimensions (id, time) and the last dimension (target)
-            X = data[:, :, 2:-1] # shape = [N, T, D]
+            X = data[:, :, 2:-1]  # shape = [N, T, D]
             y = data[:, :, -1].astype(int)  # shape = [N, T]
         else:
             # for inference
@@ -119,7 +121,8 @@ class TSAnnotator:
     def fit(self, train_data):
         train_X, train_y = self._get_X_and_y(train_data, is_train=True)
 
-        self.net.fit(train_X, train_y, max_epochs=100, batch_size=self.batch_size, verbose=1)
+        self.net.fit(train_X, train_y, max_epochs=100,
+                     batch_size=self.batch_size, verbose=1)
 
         self._is_trained = True
         return self.net
@@ -163,7 +166,7 @@ class TSAnnotator:
         raise NotFittedError("Model is not fitted yet.")
 
     def save(self, model_dir_path: str) -> None:
-        """Save the CNN TSAnnotator to disk.
+        """Save the ANN TSAnnotator to disk.
 
         Args:
             model_dir_path (str): Dir path to which to save the model.
@@ -175,12 +178,12 @@ class TSAnnotator:
 
     @classmethod
     def load(cls, model_dir_path: str) -> "TSAnnotator":
-        """Load the CNN TSAnnotator from disk.
+        """Load the ANN TSAnnotator from disk.
 
         Args:
             model_dir_path (str): Dir path to the saved model.
         Returns:
-            TSAnnotator: A new instance of the loaded CNN TSAnnotator.
+            TSAnnotator: A new instance of the loaded ANN TSAnnotator.
         """
         model = joblib.load(os.path.join(model_dir_path, PREDICTOR_FILE_NAME))
         model.net = Net.load(model_dir_path).to(device)
