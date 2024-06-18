@@ -7,7 +7,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
 import torch.nn.functional as F
-from torch.nn import Flatten, Conv1d, Softmax, Linear, Module, CrossEntropyLoss, Dropout
+from torch.nn import Flatten, Softmax, Linear, Module, CrossEntropyLoss, Dropout
 import torch.optim as optim
 from tqdm import tqdm
 
@@ -35,7 +35,7 @@ class Net(Module):
 
         self.softmax = Softmax(dim=-1)
         self.criterion = CrossEntropyLoss()
-        self.dropout = Dropout(p=0.1) 
+        self.dropout = Dropout(p=0.1)
 
         dim1 = 1000
         dim2 = 200
@@ -176,7 +176,6 @@ class Net(Module):
                     print(
                         f"Epoch: {epoch+1}/{max_epochs}, loss: {np.round(current_loss, 5)}"
                     )
-            
 
         return losses
 
