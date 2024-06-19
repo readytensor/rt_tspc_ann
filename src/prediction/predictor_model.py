@@ -5,7 +5,6 @@ import warnings
 import joblib
 import numpy as np
 from .NNet_model import Net
-from . import NNet_model as NNet_utils
 from sklearn.exceptions import NotFittedError
 from multiprocessing import cpu_count
 from sklearn.metrics import f1_score
@@ -56,6 +55,8 @@ class TSAnnotator:
         self,
         data_schema: TSAnnotationSchema,
         encode_len: int,
+        lr: float = 1e-3,
+        max_epochs: int = 100,
         batch_size: int = 64,
         random_state: int = 42,
         **kwargs,
@@ -64,11 +65,17 @@ class TSAnnotator:
         Construct a new ANN TSAnnotator.
 
         Args:
-            encode_len (int): Encoding (history) length.
-            n_neighbors (int): Number of neighbors to use.
+            data_schema (TSAnnotationSchema): The data schema.
+            encode_len (int): The length of the window sample.
+            lr (float): The learning rate.
+            max_epochs (int): The maximum number of epochs.
+            batch_size (int): The batch size.
+            random_state (int): random state number for reproducibility.
         """
         self.data_schema = data_schema
         self.encode_len = int(encode_len)
+        self.lr = lr
+        self.max_epochs = max_epochs
         self.batch_size = batch_size
         self.net = self.build_NNet_model()
         self._is_trained = False
@@ -84,6 +91,7 @@ class TSAnnotator:
             encode_len=self.encode_len,
             n_classes=len(self.data_schema.target_classes),
             activation="relu",
+            lr=self.lr,
         )
         model.to(device)
         model.set_optimizer("adam")
@@ -121,8 +129,13 @@ class TSAnnotator:
     def fit(self, train_data):
         train_X, train_y = self._get_X_and_y(train_data, is_train=True)
 
-        self.net.fit(train_X, train_y, max_epochs=100,
-                     batch_size=self.batch_size, verbose=1)
+        self.net.fit(
+            train_X,
+            train_y,
+            max_epochs=self.max_epochs,
+            batch_size=self.batch_size,
+            verbose=1,
+        )
 
         self._is_trained = True
         return self.net
