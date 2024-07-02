@@ -9,6 +9,8 @@ import numpy as np
 import pandas as pd
 from typing import Any, Dict, List, Tuple, Union
 
+import torch
+
 
 def read_json_as_dict(input_path: str) -> Dict:
     """
@@ -247,6 +249,13 @@ def make_serializable(obj: Any) -> Union[int, float, List[Union[int, float]], An
     else:
         return json.JSONEncoder.default(None, obj)
 
+def get_peak_memory_usage():
+    """Returns the peak memory usage by current cuda device in (in MB) if available"""
+    if not torch.cuda.is_available():
+        return 0
+    current_device = torch.cuda.current_device()
+    peak_memory = torch.cuda.max_memory_allocated(current_device)
+    return peak_memory / (1024 * 1024)
 
 class ResourceTracker(object):
     """
@@ -273,7 +282,7 @@ class ResourceTracker(object):
         elapsed_time = self.end_time - self.start_time
         peak_python_memory_mb = peak / 1024**2
         process_cpu_peak_memory_mb = self.monitor.get_peak_memory_usage()
-        gpu_peak_memory_mb = 0
+        gpu_peak_memory_mb = get_peak_memory_usage()
 
         self.logger.info(f"Execution time: {elapsed_time:.2f} seconds")
         self.logger.info(
