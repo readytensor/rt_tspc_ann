@@ -1,5 +1,6 @@
 import json
 import os
+import math
 import random
 import time
 import threading
@@ -74,7 +75,11 @@ def read_csv_in_directory(file_dir_path: str) -> pd.DataFrame:
     if not os.path.exists(file_dir_path):
         raise FileNotFoundError(f"Directory does not exist: {file_dir_path}")
 
-    csv_files = [file for file in os.listdir(file_dir_path) if file.endswith(".csv")]
+    csv_files = [
+        file
+        for file in os.listdir(file_dir_path)
+        if file.endswith(".csv") or file.endswith(".zip")
+    ]
 
     if not csv_files:
         raise ValueError(f"No CSV file found in directory {file_dir_path}")
@@ -175,18 +180,11 @@ def train_test_split(
         train_set = data.iloc[:-test_size]
 
     else:  # If multiple series, split by series
-        n_test_series = int(n_series * test_split)
+        n_test_series = math.ceil(n_series * test_split)
+        test_ids = random.sample(data[id_col].unique().tolist(), n_test_series)
 
-        smallest_n_series = (
-            data[id_col]
-            .value_counts()
-            .sort_values()
-            .iloc[:n_test_series]
-            .index.tolist()
-        )
-
-        test_set = data[data[id_col].isin(smallest_n_series)]
-        train_set = data[~data[id_col].isin(smallest_n_series)]
+        test_set = data[data[id_col].isin(test_ids)]
+        train_set = data[~data[id_col].isin(test_ids)]
 
     return train_set, test_set
 
@@ -249,6 +247,7 @@ def make_serializable(obj: Any) -> Union[int, float, List[Union[int, float]], An
     else:
         return json.JSONEncoder.default(None, obj)
 
+
 def get_peak_memory_usage():
     """Returns the peak memory usage by current cuda device in (in MB) if available"""
     if not torch.cuda.is_available():
@@ -294,7 +293,6 @@ class ResourceTracker(object):
         self.logger.info(
             f"Peak System RAM Usage (Incremental): {process_cpu_peak_memory_mb:.2f} MB"
         )
-
 
 class MemoryMonitor:
     initial_cpu_memory = None

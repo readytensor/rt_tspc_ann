@@ -24,7 +24,7 @@ class Net(Module):
 
     def __init__(self, feat_dim, encode_len, n_classes, activation, lr):
         super(Net, self).__init__()
-        self.MODEL_NAME = "ANN_Timeseries_Annotator"
+        self.MODEL_NAME = "ANN_TimeStepClassifier"
 
         self.feat_dim = feat_dim
         self.encode_len = encode_len

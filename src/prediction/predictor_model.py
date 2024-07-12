@@ -5,13 +5,13 @@ import warnings
 import joblib
 import numpy as np
 from .NNet_model import Net
+from . import NNet_model as NNet_utils
 from sklearn.exceptions import NotFittedError
 from multiprocessing import cpu_count
 from sklearn.metrics import f1_score
-from schema.data_schema import TSAnnotationSchema
-from preprocessing.custom_transformers import PADDING_VALUE
+from schema.data_schema import TimeStepClassificationSchema
 from typing import Tuple
-import torch
+import torch 
 
 
 warnings.filterwarnings("ignore")
@@ -31,7 +31,6 @@ device = torch.device(
 )
 print("device used: ", device)
 
-
 def control_randomness(seed: int = 42):
     random.seed(seed)
     os.environ["PYTHONHASHSEED"] = str(seed)
@@ -41,41 +40,44 @@ def control_randomness(seed: int = 42):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-
-class TSAnnotator:
-    """ANN Timeseries Annotator.
+class TimeStepClassifier:
+    """ANN TimeStepClassifier.
 
     This class provides a consistent interface that can be used with other
-    TSAnnotator models.
+    TimeStepClassifier models.
     """
 
-    MODEL_NAME = "ANN_Timeseries_Annotator"
+    MODEL_NAME = "ANN_TimeStepClassifier"
 
     def __init__(
         self,
-        data_schema: TSAnnotationSchema,
+        data_schema: TimeStepClassificationSchema,
         encode_len: int,
-        lr: float = 1e-3,
+        padding_value: float,
         max_epochs: int = 100,
-        batch_size: int = 64,
+        lr: float = 1e-3,
+        batch_size:int = 64,
         random_state: int = 42,
         **kwargs,
     ):
         """
-        Construct a new ANN TSAnnotator.
+        Construct a new ANN TimeStepClassifier.
 
         Args:
-            data_schema (TSAnnotationSchema): The data schema.
-            encode_len (int): The length of the window sample.
-            lr (float): The learning rate.
-            max_epochs (int): The maximum number of epochs.
-            batch_size (int): The batch size.
-            random_state (int): random state number for reproducibility.
+            data_schema (TimeStepClassificationSchema): The data schema for the model.
+            encode_len (int): Encoding (history) length.
+            padding_value (float): The padding value.
+            max_epochs (int): Maximum number of epochs to train the model.
+            lr (float): Learning rate for the model.
+            batch_size (int): Batch size for training the model.
+            random_state (int): Random state for reproducibility.
+            **kwargs: Additional keyword arguments.
         """
         self.data_schema = data_schema
         self.encode_len = int(encode_len)
-        self.lr = lr
+        self.padding_value = padding_value
         self.max_epochs = max_epochs
+        self.lr = lr
         self.batch_size = batch_size
         self.net = self.build_NNet_model()
         self._is_trained = False
@@ -85,7 +87,7 @@ class TSAnnotator:
         control_randomness(self.random_state)
 
     def build_NNet_model(self) -> Net:
-        """Build a new ANN annotator."""
+        """Build a new ANN TimeStepClassifier."""
         model = Net(
             feat_dim=len(self.data_schema.features),
             encode_len=self.encode_len,
@@ -113,7 +115,7 @@ class TSAnnotator:
                     f" length on axis 1. Found length {T}"
                 )
             # we excluded the first 2 dimensions (id, time) and the last dimension (target)
-            X = data[:, :, 2:-1]  # shape = [N, T, D]
+            X = data[:, :, 2:-1] # shape = [N, T, D]
             y = data[:, :, -1].astype(int)  # shape = [N, T]
         else:
             # for inference
@@ -129,13 +131,7 @@ class TSAnnotator:
     def fit(self, train_data):
         train_X, train_y = self._get_X_and_y(train_data, is_train=True)
 
-        self.net.fit(
-            train_X,
-            train_y,
-            max_epochs=self.max_epochs,
-            batch_size=self.batch_size,
-            verbose=1,
-        )
+        self.net.fit(train_X, train_y, max_epochs=self.max_epochs, batch_size=self.batch_size, verbose=1)
 
         self._is_trained = True
         return self.net
@@ -144,9 +140,6 @@ class TSAnnotator:
         X, window_ids = self._get_X_and_y(data, is_train=False)
 
         preds = self.net.predict_proba(X)
-        for i in range(len(preds)):
-            if preds[i].shape[1] > len(self.data_schema.target_classes):
-                preds[i] = preds[i][:, :-1]
         preds = np.array(preds)
         prob_dict = {}
 
@@ -160,11 +153,11 @@ class TSAnnotator:
         prob_dict = {
             k: np.mean(np.array(v), axis=0)
             for k, v in prob_dict.items()
-            if k[1] != PADDING_VALUE
+            if k[1] != self.padding_value
         }
 
         sorted_dict = {key: prob_dict[key] for key in sorted(prob_dict.keys())}
-        probabilities = np.vstack(sorted_dict.values())
+        probabilities = np.vstack(list(sorted_dict.values()))
         return probabilities
 
     def evaluate(self, test_data):
@@ -179,7 +172,7 @@ class TSAnnotator:
         raise NotFittedError("Model is not fitted yet.")
 
     def save(self, model_dir_path: str) -> None:
-        """Save the ANN TSAnnotator to disk.
+        """Save the ANN TimeStepClassifier to disk.
 
         Args:
             model_dir_path (str): Dir path to which to save the model.
@@ -190,13 +183,13 @@ class TSAnnotator:
         self.net.save(model_dir_path)
 
     @classmethod
-    def load(cls, model_dir_path: str) -> "TSAnnotator":
-        """Load the ANN TSAnnotator from disk.
+    def load(cls, model_dir_path: str) -> "TimeStepClassifier":
+        """Load the ANN TimeStepClassifier from disk.
 
         Args:
             model_dir_path (str): Dir path to the saved model.
         Returns:
-            TSAnnotator: A new instance of the loaded ANN TSAnnotator.
+            TimeStepClassifier: A new instance of the loaded ANN TimeStepClassifier.
         """
         model = joblib.load(os.path.join(model_dir_path, PREDICTOR_FILE_NAME))
         model.net = Net.load(model_dir_path).to(device)
@@ -206,33 +199,37 @@ class TSAnnotator:
 
 def train_predictor_model(
     train_data: np.ndarray,
-    data_schema: TSAnnotationSchema,
+    data_schema: TimeStepClassificationSchema,
     hyperparameters: dict,
-) -> TSAnnotator:
+    padding_value: float,
+) -> TimeStepClassifier:
     """
-    Instantiate and train the TSAnnotator model.
+    Instantiate and train the TimeStepClassifier model.
 
     Args:
         train_data (np.ndarray): The train split from training data.
-        hyperparameters (dict): Hyperparameters for the TSAnnotator.
+        data_schema (TimeStepClassificationSchema): The data schema.
+        hyperparameters (dict): Hyperparameters for the TimeStepClassifier.
+        padding_value (float): The padding value.
 
     Returns:
-        'TSAnnotator': The TSAnnotator model
+        'TimeStepClassifier': The TimeStepClassifier model
     """
-    model = TSAnnotator(
+    model = TimeStepClassifier(
         data_schema=data_schema,
+        padding_value=padding_value,
         **hyperparameters,
     )
     model.fit(train_data=train_data)
     return model
 
 
-def predict_with_model(model: TSAnnotator, test_data: np.ndarray) -> np.ndarray:
+def predict_with_model(model: TimeStepClassifier, test_data: np.ndarray) -> np.ndarray:
     """
     Make forecast.
 
     Args:
-        model (TSAnnotator): The TSAnnotator model.
+        model (TimeStepClassifier): The TimeStepClassifier model.
         test_data (np.ndarray): The test input data for annotation.
 
     Returns:
@@ -241,12 +238,12 @@ def predict_with_model(model: TSAnnotator, test_data: np.ndarray) -> np.ndarray:
     return model.predict(test_data)
 
 
-def save_predictor_model(model: TSAnnotator, predictor_dir_path: str) -> None:
+def save_predictor_model(model: TimeStepClassifier, predictor_dir_path: str) -> None:
     """
-    Save the TSAnnotator model to disk.
+    Save the TimeStepClassifier model to disk.
 
     Args:
-        model (TSAnnotator): The TSAnnotator model to save.
+        model (TimeStepClassifier): The TimeStepClassifier model to save.
         predictor_dir_path (str): Dir path to which to save the model.
     """
     if not os.path.exists(predictor_dir_path):
@@ -254,28 +251,28 @@ def save_predictor_model(model: TSAnnotator, predictor_dir_path: str) -> None:
     model.save(predictor_dir_path)
 
 
-def load_predictor_model(predictor_dir_path: str) -> TSAnnotator:
+def load_predictor_model(predictor_dir_path: str) -> TimeStepClassifier:
     """
-    Load the TSAnnotator model from disk.
+    Load the TimeStepClassifier model from disk.
 
     Args:
         predictor_dir_path (str): Dir path where model is saved.
 
     Returns:
-        TSAnnotator: A new instance of the loaded TSAnnotator model.
+        TimeStepClassifier: A new instance of the loaded TimeStepClassifier model.
     """
-    return TSAnnotator.load(predictor_dir_path)
+    return TimeStepClassifier.load(predictor_dir_path)
 
 
-def evaluate_predictor_model(model: TSAnnotator, test_split: np.ndarray) -> float:
+def evaluate_predictor_model(model: TimeStepClassifier, test_split: np.ndarray) -> float:
     """
-    Evaluate the TSAnnotator model and return the r-squared value.
+    Evaluate the TimeStepClassifier model and return the r-squared value.
 
     Args:
-        model (TSAnnotator): The TSAnnotator model.
+        model (TimeStepClassifier): The TimeStepClassifier model.
         test_split (np.ndarray): Test data.
 
     Returns:
-        float: The r-squared value of the TSAnnotator model.
+        float: The r-squared value of the TimeStepClassifier model.
     """
     return model.evaluate(test_split)
